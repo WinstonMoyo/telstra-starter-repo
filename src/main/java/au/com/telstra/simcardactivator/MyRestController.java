@@ -15,6 +15,9 @@ import org.springframework.web.client.RestTemplate;
 import java.util.Map;
 import java.util.HashMap;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.beans.factory.annotation.Autowired;
 
 /**
  *
@@ -23,10 +26,14 @@ import org.springframework.http.MediaType;
 @RestController
 public class MyRestController {
 
+    @Autowired
+    private SimCardRecordRepository simCardRecordRepository;
+
     @PostMapping("/Activate")
     public ResponseEntity<String> activate(@RequestBody Activation activationRequest) {
         try {
             String iccid = activationRequest.getIccid();
+            String email = activationRequest.getCustomerEmail();
 
             Map<String, String> payload = new HashMap<>();
             payload.put("iccid", iccid);
@@ -40,18 +47,40 @@ public class MyRestController {
 
             ActuatorResponse response = restTemplate.postForObject("http://localhost:8444/actuate", requestEntity, ActuatorResponse.class);
 
-            if (response != null && response.isSuccess()) {
+            boolean activated = response != null && response.isSuccess();
+
+            SimCardRecord record = new SimCardRecord(iccid, email, activated);
+            simCardRecordRepository.save(record);
+            if (activated) {
                 System.out.println("Activation successful for ICCID: " + iccid);
                 return ResponseEntity.ok("Activation successful.");
             } else {
                 System.out.println("Activation failed for ICCID: " + iccid);
                 return ResponseEntity.ok("Activation failed.");
             }
+
         } catch (Exception e) {
             e.printStackTrace();
             return ResponseEntity.status(500).body("Internal server error");
         }
 
+    }
+
+    @GetMapping("/SimCard")
+    public ResponseEntity<Map<String, Object>> getSimCard(@RequestParam Long simCardId) {
+        return simCardRecordRepository.findById(simCardId).map(
+                record -> {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("iccid", record.getIccid());
+                    response.put("customerEmail", record.getCustomerEmail());
+                    response.put("active", record.isActive());
+                    return ResponseEntity.ok(response);
+                })
+                .orElseGet(() -> {
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "Record not found");
+                    return ResponseEntity.status(404).body(errorResponse);
+                });
     }
 
 }
@@ -89,4 +118,5 @@ class ActuatorResponse {
     public void setSuccess(boolean success) {
         this.success = success;
     }
+
 }
